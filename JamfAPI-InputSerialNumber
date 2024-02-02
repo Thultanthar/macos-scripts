@@ -9,7 +9,7 @@
 #read -s -p "Please input your secret: " client_secret
 
 #Input Jamf URL
-url="https://x.pro.jamf.com/" 
+url="https://x.pro.jamf.com" 
 
 # NEED current_epoch VALUE DEFINED FIRST - So we can compare the expiration times
 current_epoch=$(date +%s)
