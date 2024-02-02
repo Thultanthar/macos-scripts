@@ -1,0 +1,100 @@
+#!/bin/bash
+#keys:
+#Client ID: Generate your client ID
+#Client secret: Generate your client ID
+
+
+#read -s -p "Please input your client ID: " client_id
+#echo ""
+#read -s -p "Please input your secret: " client_secret
+
+#Input Jamf URL
+url="https://x.pro.jamf.com/" 
+
+# NEED current_epoch VALUE DEFINED FIRST - So we can compare the expiration times
+current_epoch=$(date +%s)
+
+getAccessToken() {
+	response=$(curl --silent --location --request POST "${url}/api/oauth/token" \
+				--header "Content-Type: application/x-www-form-urlencoded" \
+				--data-urlencode "client_id=${client_id}" \
+				--data-urlencode "grant_type=client_credentials" \
+				--data-urlencode "client_secret=${client_secret}")
+	access_token=$(echo "$response" | plutil -extract access_token raw -)
+	token_expires_in=$(echo "$response" | plutil -extract expires_in raw -)
+	token_expiration_epoch=$(($current_epoch + $token_expires_in - 1))
+}
+
+getAccessToken 
+
+echo $access_token
+
+
+
+function serialNumber() {
+	local regex='^JS.*[0-9]{6}$'
+	count=0
+	invalidResponse=true 
+	
+	while $invalidResponse
+	do
+		serialNumberVal=$(osascript -e 'text returned of (display dialog "Please push the button" default answer "JSXXXXXX" buttons {"OK"} default button 1)')
+		
+		if [[ $serialNumberVal =~ $regex ]]
+		then
+			#jamf recon -serialNumber $serialNumber
+			invalidResponse=false
+			#echo $serialNumberVal
+		else
+			((count++))
+			echo "Invalid input. Please input a Serial Number starting with 'JS' followed by six digits."
+		fi
+	done
+}
+
+
+# Main loop
+continueEntering=true
+getAccessToken
+
+while $continueEntering
+do
+	serialNumber # Call the function
+	echo "Serial Number Entered: $serialNumberVal"
+	
+	apiEndpoint="$url/JSSResource/mobiledevices/serialnumber/$serialNumberVal"
+	
+	xmlResponse=$(curl -X GET "$apiEndpoint" \
+		-H "accept: application/xml" \
+		-H "Authorization: Bearer $access_token")
+	
+	# Check if no device is found
+	if [[ $xmlResponse == *"No matching"* ]]; then
+		/Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Result" -description "No matching record found for $serialNumberVal" -button1 "OK" -defaultButton 1
+	else
+		# Placeholder for checking multiple records - adjust based on your API response format
+		if [[ $(echo "$xmlResponse" | grep -o "<device>" | wc -l) -gt 1 ]]; then
+			# Handle multiple records found
+			/Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Multiple Records" -description "Multiple records found for $serialNumberVal" -button1 "OK" -defaultButton 1
+		else
+			# Extract user name, building, and department for a single record
+			userName=$(echo "$xmlResponse" | xpath -e "//user_name/text()" 2>/dev/null)
+			building=$(echo "$xmlResponse" | xpath -e "//building/text()" 2>/dev/null)
+			department=$(echo "$xmlResponse" | xpath -e "//department/text()" 2>/dev/null)
+			
+			details="User Name: $userName\nBuilding: $building\nDepartment: $department"
+			/Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Device Details" -description "$details" -button1 "OK" -defaultButton 1
+		fi
+	fi
+	
+	# Ask if the user wants to continue
+	userChoice=$( /Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Continue" -description "Do you want to enter another serial number?" -button1 "Yes" -button2 "No" -defaultButton 1 )
+	
+	if [ "$userChoice" -eq 2 ]; then
+		continueEntering=false
+	fi
+done
+
+echo "Finished entering asset tags."
+echo $(date "+%m:%d:%y")
+
