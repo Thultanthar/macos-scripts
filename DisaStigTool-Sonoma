@@ -1,0 +1,62 @@
+#high V-257219 
+#The macOS system must disable the guest account
+function guestAccountDisabled {
+    guestAccountDisabled_values=$(/usr/sbin/system_profiler SPConfigurationProfileDataType | /usr/bin/grep "GuestAccount")
+    
+    #For Compliance this must be 1
+    accountDisabledValue=$(echo $guestAccountDisabled_values | awk -F'[=;]' '{print $2}')
+    enabledGuestValue=$(echo $guestAccountDisabled_values | awk -F'[=;]' '{print $4}')
+    guestAccountDisabledBoolean=false
+
+    if [[ $accountDisabledValue -eq "1" ]] && [[ $enabledGuestValue -eq "0" ]]
+    then
+        echo "Compliant with: V-257219 The macOS system must disable the guest account."
+        echo "$guestAccountDisabled_values"
+        guestAccountDisabledBoolean=true
+        echo ""
+    else
+        echo "Not Compliant: Configure the macOS system to disable the guest account by installing the 'Login Window Policy' configuration profile."
+        echo ""
+    fi 
+}
+
+#high V-257294
+#The macOS system must implement approved Message Authentication Codes (MACs) within the SSH client configuration.
+function verifySSHMacs {
+    # Define the approved MAC
+    local approved_mac="hmac-sha2-256"
+    
+    # Search for "Macs" setting in ssh_config files
+    local config_files=$(/usr/bin/sudo /usr/bin/grep -irl "macs" /etc/ssh/ssh_config*)
+    
+    # Flag to track compliance
+    local is_compliant=true
+    
+    # Check each file
+    for file in $config_files; do
+        # Extract the MACs values
+        local macs=$(/usr/bin/sudo /usr/bin/grep -i "macs" $file | awk '{for (i=1; i<=NF; i++) if ($i == "Macs") {print $(i+1)}}')
+            
+            # Check if the MACs value is not the approved one
+            if [[ "$macs" != "$approved_mac" ]]; then
+                echo "id: V-257294 - Finding in $file: MACs is set to $macs, but should be $approved_mac"
+                is_compliant=false
+            fi
+            done
+            
+            # Final compliance check
+            if [ "$is_compliant" = true ]; then
+                echo "Compliant: All SSH client configurations use the approved MAC $approved_mac"
+            else
+                echo "Not Compliant: id V-257294 - One or more SSH client configurations do not use the approved MAC $approved_mac"
+                echo ""
+                echo "Configure the macOS system to use approved SSH MACs by creating a plain text file in the /private/etc/ssh/ssh_config.d/ directory containing the following:"
+                echo ""
+                echo "MACs hmac-sha2-256"
+                echo "The SSH service must be restarted for changes to take effect."
+                echo ""
+            fi
+}
+
+guestAccountDisabled > result.txt
+verifySSHMacs >> result.txt
